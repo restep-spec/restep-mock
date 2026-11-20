@@ -1,0 +1,75 @@
+{
+  "restep": "1.0",
+  "version": "1",
+  "profiles": ["core", "query", "writes", "relations", "sync"],
+  "extensions": ["actions"],
+  "idempotency": { "ttl": 86400 },
+  "status": "/status",
+  "collections": {
+    "speakers": {
+      "path": "/speakers",
+      "description": "Ponentes de las jornadas, sin esquema: los tipos salen de los filtros y de los nombres.",
+      "filter": {
+        "id": { "type": "string", "ops": ["eq", "in"] },
+        "email": { "type": "string", "ops": ["eq"] },
+        "birth_date": { "type": "date", "ops": ["lt", "ge", "null"] },
+        "active": { "type": "boolean", "ops": ["eq", "ne"] },
+        "created_at": { "type": "datetime", "ops": ["gt", "le"] }
+      },
+      "sort": ["id", "name", "birth_date", "created_at"],
+      "max_limit": 25,
+      "count": "exact",
+      "sync": { "retention": 604800 }
+    },
+    "venues": {
+      "path": "/venues",
+      "description": "Salas, con su esquema enlazado.",
+      "schemas": { "item": "/schemas/venue.json" },
+      "filter": { "id": { "type": "string", "ops": ["eq", "in"] }, "capacity": { "type": "integer", "ops": ["ge", "le"] } },
+      "sort": ["id", "capacity", "city"],
+      "max_limit": 50,
+      "count": "estimated"
+    },
+    "talks": {
+      "path": "/talks",
+      "description": "Charlas, con duración, sala y ponentes.",
+      "methods": ["GET", "POST"],
+      "item_methods": ["GET", "PATCH", "DELETE"],
+      "schemas": {
+        "item": {
+          "type": "object",
+          "required": ["id", "title", "starts_at"],
+          "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string", "maxLength": 80 },
+            "starts_at": { "type": "string", "format": "date-time" },
+            "duration": { "type": ["string", "null"], "format": "duration" },
+            "price": { "anyOf": [{ "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?$" }, { "type": "null" }] },
+            "level": { "type": "string", "enum": ["basico", "medio", "avanzado"] },
+            "streamed": { "type": "boolean" },
+            "venue": { "anyOf": [{ "type": "object", "properties": { "id": { "type": "string" } } }, { "type": "null" }] },
+            "speakers": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" } } } }
+          }
+        }
+      },
+      "filter": {
+        "id": { "type": "string", "ops": ["eq", "in"] },
+        "starts_at": { "type": "datetime", "ops": ["ge", "lt"] },
+        "duration": { "type": "duration", "ops": ["le", "gt", "null"] },
+        "price": { "type": "decimal", "ops": ["lt", "ge", "null"] },
+        "level": { "type": "enum", "values": ["basico", "medio", "avanzado"], "ops": ["eq", "in", "ne"] },
+        "streamed": { "type": "boolean", "ops": ["eq"] },
+        "venue.id": { "type": "string", "ops": ["eq", "in"] }
+      },
+      "sort": ["id", "starts_at", "duration", "price", "title"],
+      "max_limit": 30,
+      "count": "exact",
+      "relations": {
+        "venue": { "to": "venues", "include": true },
+        "speakers": { "to": "speakers", "many": true, "include": true }
+      },
+      "include_depth": 1,
+      "actions": { "cancel": { "on": "item", "safe": false, "idempotent": true } }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "restep-mock",
+  "version": "0.1.0",
+  "description": "API Restep 1 falsa a partir de un documento de descubrimiento",
+  "type": "module",
+  "bin": {
+    "restep-mock": "restep-mock.mjs"
+  },
+  "files": [
+    "restep-mock.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/restep-spec/restep-mock.git"
+  },
+  "homepage": "https://restep.wubytes.com/tools/",
+  "bugs": {
+    "url": "https://github.com/restep-spec/restep-mock/issues"
+  },
+  "scripts": {
+    "test": "node test.mjs"
+  }
+}
