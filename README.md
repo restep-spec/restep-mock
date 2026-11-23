@@ -15,7 +15,7 @@ generalizado para cualquier descubrimiento.
 ```bash
 npx restep-mock discovery.json                       # http://localhost:8090/
 npx restep-mock https://api.example.com/ --port 9000  # el descubrimiento de una API que ya existe
-node tools/restep-mock/restep-mock.mjs tools/restep-mock/test/agenda.json --seed 7 --count 20
+npx restep-mock agenda.json --seed 7 --count 20         # datos repetibles
 ```
 
 | Opción | Qué hace |
