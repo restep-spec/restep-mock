@@ -1,7 +1,7 @@
 {
   "restep": "1.0",
   "version": "1",
-  "profiles": ["core", "query", "writes", "relations", "sync"],
+  "profiles": ["core", "query", "writes", "cache", "relations", "sync"],
   "extensions": ["actions"],
   "idempotency": { "ttl": 86400 },
   "status": "/status",

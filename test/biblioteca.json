@@ -1,0 +1,79 @@
+{
+  "restep": "1.0-draft.6",
+  "version": "1",
+  "profiles": ["core", "query", "writes", "cache", "relations"],
+  "extensions": ["actions"],
+  "idempotency": { "ttl": 86400 },
+  "collections": {
+    "authors": {
+      "path": "/authors",
+      "description": "Autoras y autores.",
+      "methods": ["GET", "POST"],
+      "item_methods": ["GET", "PATCH", "DELETE"],
+      "filter": { "id": { "type": "string", "ops": ["eq", "in"] }, "name": { "type": "string", "ops": ["eq"] } },
+      "sort": ["id", "name"],
+      "max_limit": 50,
+      "relations": { "books": { "to": "books", "many": true, "path": "/authors/{author_id}/books" } }
+    },
+    "books": {
+      "path": "/authors/{author_id}/books",
+      "parent": "authors",
+      "description": "Los libros de cada autor: una subcolección.",
+      "methods": ["GET", "POST"],
+      "item_methods": ["GET", "PATCH", "DELETE"],
+      "schemas": {
+        "item": { "type": "object", "required": ["id", "title"], "properties": {
+          "id": { "type": "string" }, "title": { "type": "string", "maxLength": 80 },
+          "year": { "type": ["integer", "null"], "minimum": 1900, "maximum": 2026 },
+          "reviews": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "href": { "type": "string" } } } } } }
+      },
+      "filter": { "id": { "type": "string", "ops": ["eq", "in"] }, "year": { "type": "integer", "ops": ["ge", "lt", "null"] } },
+      "sort": ["id", "year", "title"],
+      "max_limit": 20,
+      "relations": { "reviews": { "to": "reviews", "many": true, "include": true, "path": "/authors/{author_id}/books/{book_id}/reviews" },
+        "best_review": { "to": "reviews", "include": true } },
+      "actions": {
+        "reserve": { "on": "item", "safe": false, "idempotent": false, "description": "Aparta un ejemplar unas horas.",
+          "input": { "type": "object", "required": ["hours"], "additionalProperties": false,
+            "properties": { "hours": { "type": "integer", "minimum": 1, "maximum": 48 }, "note": { "type": "string", "maxLength": 40 } } } },
+        "preview": { "on": "item", "safe": true, "idempotent": true, "method": "GET", "description": "Vista previa, sin cambiar nada." },
+        "changes": { "on": "collection", "safe": true, "idempotent": true, "method": "GET" }
+      }
+    },
+    "reviews": {
+      "path": "/authors/{author_id}/books/{book_id}/reviews",
+      "parent": "books",
+      "description": "Reseñas de cada libro: una subcolección de segundo nivel.",
+      "methods": ["GET", "POST"],
+      "item_methods": ["GET", "DELETE"],
+      "id_from": "either",
+      "schemas": { "item": { "type": "object", "required": ["id", "stars"], "properties": {
+        "id": { "type": "string" }, "stars": { "type": "integer", "minimum": 1, "maximum": 5 }, "comment": { "type": "string" } } } },
+      "sort": ["id", "stars"],
+      "max_limit": 20
+    },
+    "shelves": {
+      "path": "/shelves",
+      "description": "Estanterías con libros de cualquier autor y un destacado, que puede ser un autor u otra estantería.",
+      "methods": ["GET", "POST"],
+      "item_methods": ["GET", "PATCH", "DELETE"],
+      "filter": { "id": { "type": "string", "ops": ["eq", "in"] }, "books.id": { "type": "string", "ops": ["eq"] }, "featured.id": { "type": "string", "ops": ["eq"] } },
+      "sort": ["id", "label"],
+      "max_limit": 50,
+      "include_depth": 2,
+      "relations": {
+        "books": { "to": "books", "many": true, "include": true },
+        "featured": { "to": ["authors", "shelves"], "include": true }
+      },
+      "schemas": { "item": { "type": "object", "properties": { "id": { "type": "string" }, "label": { "type": "string" },
+        "books": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "href": { "type": "string" } } } },
+        "featured": { "anyOf": [{ "type": "object", "properties": { "id": { "type": "string" }, "type": { "type": "string" } } }, { "type": "null" }] } } } },
+      "actions": {
+        "reorder": { "on": "collection", "safe": false, "idempotent": true, "description": "Reordena las estanterías." },
+        "summary": { "on": "collection", "safe": true, "idempotent": true, "method": "GET", "description": "Resumen de las estanterías." },
+        "broken": { "on": "collection", "safe": false, "idempotent": false, "method": "GET" }
+      }
+    },
+    "orphans": { "path": "/nowhere/{x}/orphans", "parent": "nowhere" }
+  }
+}
