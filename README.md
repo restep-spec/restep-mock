@@ -1,240 +1,252 @@
 # restep-mock
 
-API Restep 1 falsa a partir de un documento de descubrimiento (§4.2). Sirve para desarrollar un
-cliente, un agente o una interfaz antes de que exista el servidor, o para probarlos contra datos
-abundantes, latencia y caídas. Un solo archivo, Node 18+, sin dependencias.
+A fake Restep 1 API built from a discovery document (§4.2). Use it to develop a client, an agent
+or a UI before the server exists, or to test them against plenty of data, latency and outages. A
+single file, Node 18+, no dependencies.
 
-No es un servidor de cartón: se comporta como uno real del borrador 6 en los perfiles `core`,
-`query`, `writes`, `cache` y `relations` y las extensiones `actions` e `inherit`, con
-subcolecciones, y pasa `restep-check --writes`
-sin fallos con el descubrimiento del servidor de referencia (ver «Pruebas»). Gran parte del código viene de `vendor/restep-server.mjs`,
-generalizado para cualquier descubrimiento.
+It is not a cardboard server: it behaves like a real draft 6 server in the `core`, `query`,
+`writes`, `cache` and `relations` profiles and the `actions` and `inherit` extensions, with
+subcollections, and passes `restep-check --writes`
+with no failures using the reference server's discovery document (see "Tests"). Much of the code comes from `vendor/restep-server.mjs`,
+generalized for any discovery document.
 
-## Uso
+## Usage
 
 ```bash
 npx restep-mock discovery.json                       # http://localhost:8090/
-npx restep-mock https://api.example.com/ --port 9000  # el descubrimiento de una API que ya existe
-npx restep-mock agenda.json --seed 7 --count 20         # datos repetibles
+npx restep-mock https://api.example.com/ --port 9000  # the discovery document of an existing API
+npx restep-mock agenda.json --seed 7 --count 20         # repeatable data
 ```
 
-| Opción | Qué hace |
+| Option | What it does |
 |---|---|
-| `--port <n>` | Puerto (por defecto 8090; `0` elige uno libre) |
-| `--host <host>` | Interfaz en la que escucha (por defecto, todas) |
-| `--seed <n>` | Semilla de los datos, de la firma de los cursores y de los fallos (por defecto 1) |
-| `--count <n>` | Elementos por colección (por defecto 50) |
-| `--count <col>=<n>` | Elementos de una colección concreta (repetible) |
-| `--latency <ms\|a-b>` | Retraso de cada respuesta: fijo (`120`) o aleatorio en un rango (`0-300`) |
-| `--fail-rate <0..1>` | Fracción de peticiones que responden `503 unavailable` en problem+json, con `Retry-After` |
-| `--retry-after <s>` | Segundos de `Retry-After` en esos `503` (por defecto 1) |
-| `--dump` | Escribe los datos generados en JSON y termina, sin levantar el servidor |
-| `--quiet` | Sin avisos por la salida de errores |
+| `--port <n>` | Port (default 8090; `0` picks a free one) |
+| `--host <host>` | Interface to listen on (default: all) |
+| `--seed <n>` | Seed for the data, the cursor signatures and the failures (default 1) |
+| `--count <n>` | Items per collection (default 50) |
+| `--count <col>=<n>` | Items for a specific collection (repeatable) |
+| `--latency <ms\|a-b>` | Delay for each response: fixed (`120`) or random within a range (`0-300`) |
+| `--fail-rate <0..1>` | Fraction of requests that respond `503 unavailable` in problem+json, with `Retry-After` |
+| `--retry-after <s>` | Seconds of `Retry-After` in those `503`s (default 1) |
+| `--dump` | Writes the generated data as JSON and exits, without starting the server |
+| `--quiet` | No warnings on standard error |
 
-Si se le da una URL, sigue un `Link rel="service-desc"` cuando la raíz no es el descubrimiento, y
-lee los esquemas enlazados en `schemas` (con un archivo, los busca junto a él: `/schemas/x.json` es
-`<carpeta del archivo>/schemas/x.json`). Los esquemas enlazados con ruta absoluta se sirven en esa
-misma ruta.
+Given a URL, it follows a `Link rel="service-desc"` when the root is not the discovery document,
+and reads the schemas linked from `schemas` (with a file, it looks for them next to it:
+`/schemas/x.json` is `<file's folder>/schemas/x.json`). Schemas linked with an absolute path are
+served at that same path.
 
-Las escrituras viven en memoria y se pierden al parar. Código de salida 2 si no puede arrancar (opción
-mal escrita, archivo que no existe, JSON que no es un descubrimiento, puerto ocupado).
+Writes live in memory and are lost on stop. Exit code 2 if it cannot start (misspelled option,
+missing file, JSON that is not a discovery document, port in use).
 
-## Qué simula
+## What it simulates
 
-- **Descubrimiento.** Sirve el documento que recibe, sin tocar, salvo lo que no implementa (abajo):
-  así el cliente ve exactamente la API que espera. Acepta cualquier versión de Restep 1 que siga la
-  gramática de §1.1 (`1.0`, `1.1`, `1.0-draft.5`…), pero declara siempre `"restep": "1.0-draft.6"`,
-  porque es el texto que implementa (§1.2), y lo avisa si el documento decía otra. Otra versión
-  mayor, o un `restep` mal formado, no arranca.
-- **core.** Colecciones con `items` y `next`, elementos en `path/id` (cada segmento comparado tras
-  descodificarlo: `/books/%37` es `/books/7`), `HEAD` donde se declara `GET` (sin `GET`, también
-  `405`), `405` con `Allow` según `methods` e `item_methods`, `404 not_found`, el orden de errores de §5.4, parámetros reservados no admitidos
-  que fallan con `unsupported_parameter` (también `$cualquiera`, también en escrituras), errores en
-  problem+json con `title` y `detail` en inglés o en español según `Accept-Language` (§5.6), mapas de
-  idioma (§3). Tipos de medio de §3: `415` sin `Content-Type`, con otro tipo o con un `charset` que
-  no es UTF-8 (con `Accept-Patch` en un `PATCH`), y `400` a un cuerpo vacío. Quién elige el `id`
-  (`id_from`, §5.1): `"server"` (un `POST` con `id` da `422` con `read_only` en `/id`), `"client"`
-  (sin `id`, `required`) o `"either"`, con `409 conflict` y `taken` para un `id` que la colección
-  tiene o ha tenido, y sin dar nunca un `id` usado. Campos de solo lectura (`readOnly` en el
-  esquema `item`): con su valor actual se ignoran, con otro dan `read_only`. Una relación a un
-  elemento que no existe da `unknown` en su `id`; con su valor actual se ignora sin buscarla.
-  Singletons (§5.9): `GET`, `HEAD` y, si se declara, `PATCH`; `POST` y `DELETE` dan `405`; solo
-  `fields` entre los reservados. El estado del servicio (§4.4), si se declara una ruta en `status`.
-- **Retiradas (§5.5).** Lo que usa algo avisado en `deprecations` (de cualquier `kind`, en la raíz,
-  en una colección o en un singleton) lleva `Deprecation` y un `Link` con `rel="deprecation"`, y
-  `Sunset` si se retira una colección, un singleton o la versión. Pasado el `sunset`, aplica la
-  retirada de `filter`, `operator`, `sort`, `include`, `count`, `max_limit`, `method` e
-  `item_method` (deja de declararlos, y el mock se comporta como si nunca lo hubieran estado) y de
-  una colección o un singleton enteros (`410 retired`); un aviso vencido de otro `kind` no lo
-  sirve.
-- **query.** Filtros con todos los operadores y tipos de §6.1 (decimales exactos, instantes con desfase,
-  duraciones por longitud y `invalid_parameter` con años o meses, booleanos, texto por puntos de
-  código, traducciones `campo.etiqueta` sin idioma de reserva, rutas `relacion.id` y `relacion.campo`),
-  orden solo por las claves de `sort`, con ausentes al final (sin `sort` declarado, también `sort=id`
-  da `unsupported_parameter`, aunque el orden por defecto sea por `id`; desde 0.4.1), `collations` (`"server"` y cualquier valor que no sea `"codepoint"`
-  comparan sin mayúsculas ni acentos, §6.1), `fields`, `limit` dentro de `max_limit` (sin
-  `max_limit` declarado, `limit` da `unsupported_parameter`), cursores firmados y ligados a
-  colección, filtros y orden, `count` (`estimated` redondea a la decena y añade `total_estimated`;
-  sin `count` declarado, `count` con cualquier valor da `unsupported_parameter`) y un tope de 500
-  valores en `in` que da `invalid_parameter`.
-- **writes.** `POST`, `PATCH` (Merge Patch, también con `application/json`) y `DELETE`, validación con
-  `422 invalid` y una entrada por fallo, `Idempotency-Key` (repetición, `Idempotent-Replayed`,
-  `idempotency_mismatch` también con otra query, clave mal formada o con parámetros con una entrada
-  para la cabecera, y `"anonymous": false`, que rechaza con `400` una clave sin credenciales), ETag
-  fuerte, `_etag` en toda respuesta cuyo cuerpo es un elemento (también con `fields`, `include` o
-  en las escrituras) y en cada elemento de un listado que admite `PATCH` o `DELETE`, `If-Match` e
-  `If-None-Match` (también en el `POST` a una colección), `404` a una escritura sobre un elemento
-  borrado, y `Prefer: return=minimal` con la `ETag` del elemento.
-- **cache.** `Cache-Control` en toda respuesta a `GET` o `HEAD`, errores incluidos, `ETag` y `304`,
-  y `Cache-Groups` y `Cache-Group-Invalidation` (§8), estas dos solo si el descubrimiento anuncia
-  `cache`.
-- **inherit.** Valores heredados (§11.6) con `_inherited`, ciclos rechazados y fuentes reales. Si
-  alguna colección declara `inherit`, el descubrimiento servido anuncia la extensión (y lo avisa si
-  el documento no lo hacía, como en el borrador 5).
-- **Subcolecciones (§4.2, §5.1).** Una colección con `parent` y una plantilla en `path`
-  (`/authors/{author_id}/books`), a cualquier profundidad (`/authors/{author_id}/books/{book_id}/reviews`).
-  Se comprueba lo que exige §4.2: `parent` declarado y simulado, variables con nombres distintos y
-  un `path` que es el de su padre, `/`, su variable y algo más sin variables; lo que no encaja se
-  omite con su aviso, y con ello lo que cuelga de ello. Cada elemento padre tiene sus propios
-  elementos (3 por defecto, o `--count nombre=n` por padre), con `id` propios bajo ese padre
-  (`/authors/1/books/1` y `/authors/2/books/1`). Una ruta bajo un padre que no existe da `404`; el
-  `POST` crea bajo ese padre, con `Location` completa; `id_from`, `taken`, cursores y grupos de caché
-  van por padre. Borrar un elemento borra sus subcolecciones enteras (y sus descendientes) y los
-  enlaces que apuntaban a ellos; sus `id` no se vuelven a dar.
-- **actions (§11.1).** Cada acción declarada con `on`, `safe` e `idempotent` (y `method`); la que se
-  llama `changes`, la `GET` que no es segura o con `input`, y la que lleva un `on` o un `method`
-  que el borrador 6 no define, no se sirven. Como el mock no conoce su lógica, **una acción
-  simulada no cambia ningún dato**. Lo que sí hace:
-  - `POST /coleccion/{id}:nombre` o `/coleccion:nombre` (también con `%3A`), según `on`; la que no
-    está declarada, o se pide en el otro tipo de recurso, da `404`, como un elemento que no existe;
-    otro método, `405` con `Allow`. Un parámetro reservado da `unsupported_parameter`.
-  - El cuerpo: vacío, con o sin `Content-Type`, es `{}`; si no está vacío sigue §3 (`415`, `400`).
-    Se valida contra su `input`, incrustado o enlazado (tipos, `required`, `enum`, `const`, rangos,
-    longitudes, `pattern`, `format` de fechas, `additionalProperties`, `items`, `anyOf`, en objetos
-    anidados): `422 invalid` con una entrada por fallo. Sin `input` legible, acepta cualquier objeto.
-  - Una acción con `"idempotent": false` sigue §7.1 con `Idempotency-Key` (repetición, `422
-    idempotency_mismatch`, `400` con una clave mal formada o sin credenciales con `"anonymous": false`);
-    una con `"idempotent": true` no rechaza nunca la clave: la ignora y no guarda nada.
-  - `If-Match` e `If-None-Match` contra el elemento (o contra la colección, en una de colección).
-  - Responde la representación del recurso afectado (`200`): el elemento, con su `_etag` y su `ETag`,
-    o, en una acción `GET` de colección, su primera página. Una de colección con `POST` responde `204`
-    sin cuerpo, y una de elemento con `Prefer: return=minimal`, `204` con la `ETag`. Nunca `201`
-    ni `409`.
-  - Un aviso `action` en `deprecations` da `Deprecation` y `Sunset` y, vencido, `410 retired`.
-- **relations (§9).** `include` con rutas hasta `include_depth` (1 si falta), solo en relaciones con
-  `"include": true`; `fields` con rutas con punto, que exigen el `include` y un campo que exista en el
-  incluido; relaciones a muchos como listas, sin paginar; relaciones a varias colecciones con `type`,
-  cuyo `include` rellena el elemento de esa colección (y no deja seguir más hondo); un relacionado
-  que no existe se queda en su `{id}`. Los enlaces a elementos de una subcolección llevan `href`, que
-  se conserva al incluirlos, y al escribir se exige: un `href` que no es la ruta de un elemento de
-  esa colección, o cuyo último segmento no es el `id`, da `422` en `/rel/href`; uno que no existe,
-  `unknown` en `/rel/id`; de cada enlace solo se guardan `id`, `type` y `href`. Una relación a
-  muchos cuyo `path` es la plantilla de una subcolección de la propia colección **lleva a ella**: no
-  se incrusta en la representación (para eso está la subcolección), con `include` trae sus
-  elementos bajo ese padre, y no se escribe (con su valor actual se ignora; con otro, `read_only`).
-  Una relación se sustituye entera al escribir y se valida que su destino exista; con su valor
-  actual se ignora. En `filter` y `sort` no sirve (y lo avisa) una ruta que pasa por una relación a
-  muchos ni una que acaba en el `id` de un elemento de una subcolección (§6.1).
-- **Fallos y latencia.** `--fail-rate` responde `503 unavailable` antes de hacer nada (una escritura
-  que falla así no tiene efecto ni gasta su `Idempotency-Key`). El recurso de `status` no se cae, para
-  que un cliente pueda distinguir una caída transitoria de la API. Latencia y fallos son deterministas
-  por semilla en el orden de llegada de las peticiones.
+- **Discovery.** It serves the document it receives untouched, except for what it does not
+  implement (below): that way the client sees exactly the API it expects. It accepts any Restep 1
+  version that follows the grammar of §1.1 (`1.0`, `1.1`, `1.0-draft.5`…), but always declares
+  `"restep": "1.0-draft.6"`, because that is the text it implements (§1.2), and warns if the
+  document said otherwise. Another major version, or a malformed `restep`, does not start.
+- **core.** Collections with `items` and `next`, items at `path/id` (each segment compared after
+  decoding: `/books/%37` is `/books/7`), `HEAD` wherever `GET` is declared (without `GET`, also
+  `405`), `405` with `Allow` according to `methods` and `item_methods`, `404 not_found`, the error order of §5.4, unsupported reserved parameters
+  that fail with `unsupported_parameter` (also `$anything`, also on writes), problem+json errors
+  with `title` and `detail` in English or Spanish depending on `Accept-Language` (§5.6), language
+  maps (§3). Media types per §3: `415` without `Content-Type`, with another type or with a
+  `charset` other than UTF-8 (with `Accept-Patch` on a `PATCH`), and `400` for an empty body. Who
+  picks the `id` (`id_from`, §5.1): `"server"` (a `POST` with `id` gives `422` with `read_only` at
+  `/id`), `"client"` (without `id`, `required`) or `"either"`, with `409 conflict` and `taken` for
+  an `id` the collection has or has had, and never handing out a used `id`. Read-only fields
+  (`readOnly` in the `item` schema): ignored with their current value, `read_only` with another.
+  A relation to an item that does not exist gives `unknown` at its `id`; with its current value it
+  is ignored without looking it up. Singletons (§5.9): `GET`, `HEAD` and, if declared, `PATCH`;
+  `POST` and `DELETE` give `405`; only `fields` among the reserved parameters. The service status
+  (§4.4), if a path is declared in `status`.
+- **Retirements (§5.5).** Anything that uses something announced in `deprecations` (of any
+  `kind`, at the root, in a collection or in a singleton) carries `Deprecation` and a `Link` with
+  `rel="deprecation"`, and `Sunset` if a collection, a singleton or the version is being retired.
+  Once the `sunset` has passed, it applies the retirement of `filter`, `operator`, `sort`,
+  `include`, `count`, `max_limit`, `method` and `item_method` (it stops declaring them, and the
+  mock behaves as if they had never been declared) and of a whole collection or singleton
+  (`410 retired`); an expired notice of any other `kind` is not served.
+- **query.** Filters with every operator and type of §6.1 (exact decimals, instants with offset,
+  durations by length and `invalid_parameter` with years or months, booleans, text by code
+  points, `field.tag` translations with no fallback language, `relation.id` and `relation.field`
+  paths), sorting only by the keys in `sort`, with missing values last (with no `sort` declared,
+  `sort=id` also gives `unsupported_parameter`, even though the default order is by `id`; since
+  0.4.1), `collations` (`"server"` and any value other than `"codepoint"` compare ignoring case
+  and accents, §6.1), `fields`, `limit` within `max_limit` (with no `max_limit` declared, `limit`
+  gives `unsupported_parameter`), cursors signed and bound to the collection, filters and order,
+  `count` (`estimated` rounds to the nearest ten and adds `total_estimated`; with no `count`
+  declared, `count` with any value gives `unsupported_parameter`) and a cap of 500 values in `in`
+  that gives `invalid_parameter`.
+- **writes.** `POST`, `PATCH` (Merge Patch, also with `application/json`) and `DELETE`,
+  validation with `422 invalid` and one entry per failure, `Idempotency-Key` (replay,
+  `Idempotent-Replayed`, `idempotency_mismatch` also with a different query, a malformed key or
+  one with parameters with an entry for the header, and `"anonymous": false`, which rejects a key
+  without credentials with `400`), strong ETag, `_etag` in every response whose body is an item
+  (also with `fields`, `include` or on writes) and in each item of a listing that allows `PATCH`
+  or `DELETE`, `If-Match` and `If-None-Match` (also on the `POST` to a collection), `404` for a
+  write on a deleted item, and `Prefer: return=minimal` with the item's `ETag`.
+- **cache.** `Cache-Control` on every response to `GET` or `HEAD`, errors included, `ETag` and
+  `304`, and `Cache-Groups` and `Cache-Group-Invalidation` (§8), these two only if the discovery
+  document announces `cache`.
+- **inherit.** Inherited values (§11.6) with `_inherited`, cycles rejected and real sources. If
+  any collection declares `inherit`, the served discovery document announces the extension (and
+  warns if the document did not, as in draft 5).
+- **Subcollections (§4.2, §5.1).** A collection with `parent` and a template in `path`
+  (`/authors/{author_id}/books`), at any depth (`/authors/{author_id}/books/{book_id}/reviews`).
+  It checks what §4.2 requires: `parent` declared and simulated, variables with distinct names and
+  a `path` that is its parent's, `/`, its variable and something more without variables; whatever
+  does not fit is omitted with a warning, along with whatever hangs from it. Each parent item has
+  its own items (3 by default, or `--count name=n` per parent), with their own `id`s under that
+  parent (`/authors/1/books/1` and `/authors/2/books/1`). A path under a parent that does not
+  exist gives `404`; `POST` creates under that parent, with a full `Location`; `id_from`, `taken`,
+  cursors and cache groups are per parent. Deleting an item deletes its whole subcollections (and
+  their descendants) and the links that pointed to them; their `id`s are not handed out again.
+- **actions (§11.1).** Each declared action with `on`, `safe` and `idempotent` (and `method`);
+  the one named `changes`, a `GET` one that is not safe or has `input`, and one with an `on` or
+  `method` that draft 6 does not define are not served. Since the mock does not know their logic,
+  **a simulated action changes no data**. What it does do:
+  - `POST /collection/{id}:name` or `/collection:name` (also with `%3A`), depending on `on`; one
+    that is not declared, or is requested on the other kind of resource, gives `404`, like an item
+    that does not exist; another method, `405` with `Allow`. A reserved parameter gives
+    `unsupported_parameter`.
+  - The body: empty, with or without `Content-Type`, is `{}`; if not empty it follows §3 (`415`,
+    `400`). It is validated against its `input`, embedded or linked (types, `required`, `enum`,
+    `const`, ranges, lengths, `pattern`, date `format`, `additionalProperties`, `items`, `anyOf`,
+    in nested objects): `422 invalid` with one entry per failure. Without a readable `input`, it
+    accepts any object.
+  - An action with `"idempotent": false` follows §7.1 with `Idempotency-Key` (replay, `422
+    idempotency_mismatch`, `400` with a malformed key or without credentials with `"anonymous": false`);
+    one with `"idempotent": true` never rejects the key: it ignores it and stores nothing.
+  - `If-Match` and `If-None-Match` against the item (or against the collection, for a collection
+    action).
+  - It responds with the representation of the affected resource (`200`): the item, with its
+    `_etag` and its `ETag`, or, for a collection `GET` action, its first page. A collection action
+    with `POST` responds `204` with no body, and an item action with `Prefer: return=minimal`,
+    `204` with the `ETag`. Never `201` or `409`.
+  - An `action` notice in `deprecations` gives `Deprecation` and `Sunset` and, once expired,
+    `410 retired`.
+- **relations (§9).** `include` with paths up to `include_depth` (1 if missing), only on relations
+  with `"include": true`; `fields` with dotted paths, which require the `include` and a field that
+  exists in the included item; to-many relations as lists, unpaginated; relations to several
+  collections with `type`, whose `include` fills in the item from that collection (and does not
+  allow going any deeper); a related item that does not exist stays as its `{id}`. Links to items
+  of a subcollection carry `href`, which is kept when they are included, and is required on write:
+  an `href` that is not the path of an item of that collection, or whose last segment is not the
+  `id`, gives `422` at `/rel/href`; one that does not exist, `unknown` at `/rel/id`; only `id`,
+  `type` and `href` are stored from each link. A to-many relation whose `path` is the template of
+  a subcollection of the collection itself **leads to it**: it is not embedded in the
+  representation (that is what the subcollection is for), with `include` it brings its items under
+  that parent, and it is not written (ignored with its current value; `read_only` with another).
+  A relation is replaced whole on write and its target is checked to exist; with its current value
+  it is ignored. In `filter` and `sort`, a path through a to-many relation or one that ends in the
+  `id` of an item of a subcollection is not served (with a warning) (§6.1).
+- **Failures and latency.** `--fail-rate` responds `503 unavailable` before doing anything (a
+  write that fails this way has no effect and does not use up its `Idempotency-Key`). The `status`
+  resource does not go down, so a client can tell a transient API outage apart. Latency and
+  failures are deterministic per seed in the order requests arrive.
 
-## Cómo genera los datos
+## How it generates the data
 
-Cada valor sale de un generador propio para (semilla, colección, elemento, campo): misma semilla y
-mismo descubrimiento dan los mismos datos, y añadir un campo no cambia los demás.
+Each value comes from its own generator for (seed, collection, item, field): same seed and same
+discovery document give the same data, and adding a field does not change the others.
 
-1. **Campos y tipos.** Primero el esquema `item` (o `create`) de `schemas`, incrustado o enlazado:
-   `anyOf`/`type` con `null`, `format` (`date-time`, `date`, `duration`), `pattern` de decimal,
-   `enum`, objetos con `id` (relaciones) y objetos de cadenas (mapas de idioma). Manda el tipo que
-   declara `filter` para ese campo, y `language_maps`, `relations` e `inherit` dicen qué campos son
-   mapas, relaciones y herencias. Sin esquema, los campos son los que nombran `filter`, `sort`,
-   `language_maps`, `relations` e `inherit`, y el tipo que no se declare sale del nombre
-   (`*_at` → `datetime`, `price` → `decimal`, `is_*` → `boolean`, `year` → `integer`…).
-2. **Valores plausibles** según tipo y nombre: `email` (`ines.arriaga3@example.com`), nombres de
-   persona en colecciones de personas (`speakers`, `users`, `authors`…), de sala en las de lugares,
+1. **Fields and types.** First the `item` (or `create`) schema from `schemas`, embedded or
+   linked: `anyOf`/`type` with `null`, `format` (`date-time`, `date`, `duration`), decimal
+   `pattern`, `enum`, objects with `id` (relations) and objects of strings (language maps). The
+   type that `filter` declares for that field wins, and `language_maps`, `relations` and `inherit`
+   say which fields are maps, relations and inheritances. Without a schema, the fields are the
+   ones named by `filter`, `sort`, `language_maps`, `relations` and `inherit`, and any undeclared
+   type comes from the name (`*_at` → `datetime`, `price` → `decimal`, `is_*` → `boolean`, `year`
+   → `integer`…).
+2. **Plausible values** by type and name: `email` (`ines.arriaga3@example.com`), person names in
+   collections of people (`speakers`, `users`, `authors`…), room names in collections of places,
    `title`, `description`, `url`, `phone`, `city`, `country`, `currency`, `sku`, `isbn`, `status`;
-   `price` y `amount` como decimales en cadena, `tax`/`vat` entre 4, 10 y 21, `rating` de 1 a 5,
-   `year`, `stock`; fechas de nacimiento razonables, `updated_at` posterior a `created_at`, citas en
-   horario y en cuartos de hora; duraciones sin años ni meses. Respeta `minimum`, `maximum`,
-   `minLength`, `maxLength` y `enum` del esquema.
-3. **Huecos a propósito**: un 10 % de los campos opcionales va a `null` (para que el operador `null`
-   y el orden de ausentes tengan algo que probar), los mapas de idioma tienen las etiquetas que el
-   descubrimiento usa en `filter` y `sort` más `en` y `es`, con traducciones que faltan, y alguno vacío.
-4. **Relaciones** a elementos que existen: genera antes los padres y las colecciones de destino, y en
-   una relación a la propia colección solo enlaza con elementos anteriores, así que no hay ciclos. Un
-   enlace a un elemento de una subcolección elige padre y elemento, y lleva su `href`; esos enlaces se
-   rellenan al final, porque la subcolección puede colgar de la propia colección (un libro que
-   destaca una de sus reseñas). Si la subcolección cuelga del propio elemento o de uno de sus padres,
-   el enlace se queda bajo ese mismo padre: el destacado de un libro es una reseña de ese libro. En una herencia, el
-   campo propio suele ir a `null` para que herede, y el valor por defecto (si `"default": true`) se
-   genera una vez por colección y campo.
+   `price` and `amount` as decimals in strings, `tax`/`vat` among 4, 10 and 21, `rating` from 1 to
+   5, `year`, `stock`; reasonable birth dates, `updated_at` after `created_at`, appointments in
+   working hours and on quarter hours; durations without years or months. It respects the
+   schema's `minimum`, `maximum`, `minLength`, `maxLength` and `enum`.
+3. **Deliberate gaps**: 10 % of optional fields are `null` (so the `null` operator and the
+   ordering of missing values have something to test), language maps have the tags the discovery
+   document uses in `filter` and `sort` plus `en` and `es`, with missing translations, and some
+   are empty.
+4. **Relations** to items that exist: it generates parents and target collections first, and in
+   a relation to the same collection it only links to earlier items, so there are no cycles. A
+   link to an item of a subcollection picks a parent and an item, and carries its `href`; those
+   links are filled in last, because the subcollection may hang from the collection itself (a book
+   that features one of its reviews). If the subcollection hangs from the item itself or from one
+   of its parents, the link stays under that same parent: a book's featured review is a review of
+   that book. In an inheritance, the own field is usually `null` so that it inherits, and the
+   default value (if `"default": true`) is generated once per collection and field.
 
-Los `id` son `"1"`, `"2"`…, bajo cada padre en una subcolección; los creados siguen la numeración.
-`--dump` da una lista por colección y, en una subcolección, una por cada ruta de colección.
+The `id`s are `"1"`, `"2"`…, under each parent in a subcollection; created items continue the
+numbering. `--dump` gives one list per collection and, for a subcollection, one per collection
+path.
 
-## Lo que no simula
+## What it does not simulate
 
-Lo quita del descubrimiento que sirve, y lo avisa por la salida de errores, para no anunciar nada
-que no cumple:
+It removes these from the discovery document it serves, and warns on standard error, so as not
+to announce anything it does not honour:
 
-- El perfil `sync` y las extensiones `batch`, `filter-expr`, `query-method` y `oauth`; los
-  miembros `sync`, `batch` y `events`.
-- Las subcolecciones que no cumplen §4.2 (arriba), y las acciones que no cumplen §11.1.
-- Los singletons con plantilla o `parent` (§5.9 los reserva) y los campos de relación o de mapa de
-  idioma de un singleton.
-- Un `id_from` con un valor que el borrador 6 no define.
-- Los avisos de `deprecations` con un `kind` fuera de su sitio, y los vencidos de `field`, `value`,
-  `relation`, `action`, `version`, `extension` y `reason`.
+- The `sync` profile and the `batch`, `filter-expr`, `query-method` and `oauth` extensions; the
+  `sync`, `batch` and `events` members.
+- Subcollections that do not meet §4.2 (above), and actions that do not meet §11.1.
+- Singletons with a template or `parent` (§5.9 reserves them) and relation or language-map
+  fields of a singleton.
+- An `id_from` with a value that draft 6 does not define.
+- `deprecations` notices with a `kind` out of place, and expired ones for `field`, `value`,
+  `relation`, `action`, `version`, `extension` and `reason`.
 
-Otros límites:
+Other limits:
 
-- La validación con esquema cubre tipos, `required`, `enum`, `minimum`, `maximum`, `minLength`,
-  `maxLength` y `pattern` de los campos de primer nivel; no `allOf`, `$ref`, objetos anidados ni
-  `format` fuera de fechas y duraciones.
-- Acepta cualquier etiqueta bien formada en un mapa de idioma (nunca da el código `unknown` de §3).
-- La lógica de las acciones: no cambian datos, no crean nada (`201`) ni dan `409` por el estado del
-  elemento, y no pone `_actions` en las representaciones (es un PUEDE).
-- No hay esquema de salida de una acción en Restep 1, así que no genera otra respuesta que el recurso
-  afectado.
-- Una relación a una colección que no está en el descubrimiento (o que se omite) queda a `null`.
-- Los textos del descubrimiento van en el idioma en que vinieron; solo los errores cambian con
-  `Accept-Language` (inglés y español).
-- La idempotencia y las escrituras viven en memoria; el cursor no está ligado al principal.
-- No hay credenciales: ninguna respuesta depende de ellas (así que no hace falta `private`, §5.1),
-  no hay `401` ni `403`, ni la comprobación de `Origin` de §5.8, y todas las claves de idempotencia
-  son del principal anónimo salvo que la petición traiga `Authorization`.
-- En un `POST`, un campo de solo lectura distinto de `id` solo se ignora si vale `null`: el mock no
-  calcula «el valor que recibiría el elemento» (§5.1).
-- No pone `service-doc` (§4.2): no conoce la documentación de la API que simula (restep-check lo
-  avisa).
-- Nunca da `429` ni `503` a una petición con efecto: los fallos simulados llegan antes de hacer nada.
+- Schema validation covers types, `required`, `enum`, `minimum`, `maximum`, `minLength`,
+  `maxLength` and `pattern` of top-level fields; not `allOf`, `$ref`, nested objects or `format`
+  beyond dates and durations.
+- It accepts any well-formed tag in a language map (it never gives the `unknown` code of §3).
+- The logic of actions: they change no data, create nothing (`201`) and give no `409` based on the
+  item's state, and it does not put `_actions` in representations (it is a MAY).
+- Restep 1 has no output schema for an action, so it generates no response other than the
+  affected resource.
+- A relation to a collection that is not in the discovery document (or is omitted) is `null`.
+- Discovery texts stay in the language they came in; only errors change with `Accept-Language`
+  (English and Spanish).
+- Idempotency and writes live in memory; the cursor is not bound to the principal.
+- There are no credentials: no response depends on them (so `private` is not needed, §5.1), there
+  is no `401` or `403`, nor the `Origin` check of §5.8, and every idempotency key belongs to the
+  anonymous principal unless the request carries `Authorization`.
+- On a `POST`, a read-only field other than `id` is only ignored if it is `null`: the mock does
+  not compute "the value the item would receive" (§5.1).
+- It does not set `service-doc` (§4.2): it does not know the documentation of the API it
+  simulates (restep-check warns about it).
+- It never gives `429` or `503` to a request with an effect: simulated failures come before doing
+  anything.
 
-## Pruebas
+## Tests
 
 ```bash
-node tools/restep-mock/test.mjs     # desde projects/restep; usa los puertos 8830-8839
+node tools/restep-mock/test.mjs     # from projects/restep; uses ports 8830-8839
 ```
 
-Arranca el servidor de referencia, guarda su descubrimiento, levanta el mock con él y pasa
-`vendor/restep-check.mjs --writes`; hace lo mismo con `test/agenda.json`, un descubrimiento
-propio con fechas, instantes, duraciones, booleanos, `relations` con `include`, una relación a
-muchos, un esquema enlazado, una acción y lo que el mock no implementa (`sync`); y con
-`test/biblioteca.json`, inventado, con subcolecciones de dos niveles, acciones de elemento y de
-colección (`POST` con `input`, `GET`, idempotentes o no, y las que el texto prohíbe), una relación a
-elementos de una subcolección, otra que lleva a una subcolección y otra polimórfica. Además prueba la
-semilla, `--fail-rate`, `--latency`, `--count` por colección, los errores de uso y lo del borrador
-6: el singleton `shop`, `Deprecation` al ordenar por `year`, tipos de medio, `id_from`, `taken`,
-colaciones, la query en `Idempotency-Key`, la versión declarada, `inherit` anunciado, retiradas
-vencidas, `limit` y `count` sin declarar y `"anonymous": false`; y, en la biblioteca, rutas bajo
-padres que existen o no, `POST` y `DELETE` en cascada, enlaces con `href` (sin él, con otro `id`,
-a algo que no existe), `include` y `fields` con punto a través de subcolecciones y de una relación
-polimórfica, y cada regla de las acciones de arriba. Con un descubrimiento propio prueba además que
-los enlaces a una subcolección no cambian de padre, que `include` los rellena y que una colección sin
-`GET` da `405` también a `HEAD`.
+It starts the reference server, saves its discovery document, starts the mock with it and runs
+`vendor/restep-check.mjs --writes`; it does the same with `test/agenda.json`, a
+discovery document of its own with dates, instants, durations, booleans, `relations` with
+`include`, a to-many relation, a linked schema, an action and what the mock does not implement
+(`sync`); and with `test/biblioteca.json`, made up, with two-level subcollections, item and
+collection actions (`POST` with `input`, `GET`, idempotent or not, and the ones the text
+forbids), a relation to items of a subcollection, another that leads to a subcollection and a
+polymorphic one. It also tests the seed, `--fail-rate`, `--latency`, `--count` per collection,
+usage errors and the draft 6 additions: the `shop` singleton, `Deprecation` when sorting by
+`year`, media types, `id_from`, `taken`, collations, the query in `Idempotency-Key`, the declared
+version, announced `inherit`, expired retirements, undeclared `limit` and `count` and
+`"anonymous": false`; and, in the library, paths under parents that do or do not exist, cascading
+`POST` and `DELETE`, links with `href` (without it, with another `id`, to something that does not
+exist), `include` and dotted `fields` through subcollections and through a polymorphic relation,
+and each of the action rules above. With a discovery document of its own it also tests that links
+to a subcollection do not change parent, that `include` fills them in and that a collection
+without `GET` gives `405` to `HEAD` too.
 
-Resultado actual (restep-check 0.9.1):
+Current result (restep-check 0.9.1):
 
 ```
 restep-check contra el mock de la referencia:  0 failed · 1 warning · 531 passed · 50 skipped
@@ -243,65 +255,65 @@ restep-check contra el mock de la biblioteca:  0 failed · 1 warning · 292 pass
 0 fallos · 110 correctas
 ```
 
-El aviso es `discovery.service-doc` (arriba). Los `skip` son de restep-check, no del mock:
-lo que necesita credenciales o CORS, colecciones sin campos de fecha, sin `id_from` o sin campos
-`readOnly`, y similares.
+The warning is `discovery.service-doc` (above). The `skip`s come from restep-check, not the
+mock: things that need credentials or CORS, collections without date fields, without `id_from`
+or without `readOnly` fields, and the like.
 
-## Dudas sobre la spec
+## Open questions about the spec
 
-1. **`path` de una colección y la raíz de la API.** El esquema del descubrimiento dice que `path` es
-   «relativo a la raíz de la API, empezando por /», pero §3 exige que los enlaces de los cuerpos
-   (`next`, `href`) y §4.3 los enlaces de `schemas` sean rutas absolutas que incluyen la ruta de la
-   raíz. Con una raíz en `/api/`, no queda claro si `books` se declara como `/books` o `/api/books`.
-   El mock sirve siempre en `/` y no le afecta, pero un cliente sí necesita saberlo.
-2. **Filtros por una relación a muchos.** Resuelto en el borrador 6: una ruta que pasa por una
-   relación a muchos no se puede declarar en `filter` ni en `sort` (§6.1).
-3. **Cuánto puede desviarse `count: "estimated"`.** §6.5 no pone ningún límite; el mock redondea a la
-   decena. Una cota orientativa (o decir que no la hay) ayudaría a quien escribe pruebas.
-4. **Estado del servicio y `503` de la API.** §4.4 dice que `status` da `503` cuando la API no puede
-   atender, pero no si un `503` suelto de un recurso (un fallo transitorio) debe reflejarse ahí. El
-   mock deja `status` en `200` durante los fallos simulados.
-5. **Tipos de los campos que no se filtran.** El descubrimiento solo declara tipos en `filter` (§4.2)
-   y la forma completa va en `schemas`, que es opcional. Sin esquemas, un generador o un cliente
-   tipado no tiene forma de saber qué campos tiene un elemento ni de qué tipo son los que no se
-   filtran ni se ordenan; el mock los adivina por el nombre.
-6. **Qué versión declara un mock (§1.1, §1.2).** Un servidor implementa el texto de la versión que
-   declara. El mock sirve el descubrimiento de otra API, que puede declarar `1.0` o un borrador
-   anterior; para no mentir declara siempre `1.0-draft.6`, aunque eso cambie el documento que el
-   cliente esperaba.
-7. **Retiradas vencidas que siguen en `deprecations`.** §5.5 dice cómo responde lo retirado, pero no
-   si el aviso sigue en el descubrimiento después del `sunset`. El mock lo deja (con lo retirado ya
-   sin declarar), para que se vea por qué falta.
-8. **«El valor que recibiría el elemento» (§5.1).** En un `POST`, un campo de solo lectura se ignora
-   si trae ese valor, pero para un campo que pone el servidor (`created_at`) el cliente no puede
-   saberlo. El mock solo ignora `null`.
-9. **La relación que lleva a una subcolección (§9).** «The relationship that leads to one MAY carry
-   the same template in its path»: no dice si esa relación va incrustada en la representación del
-   padre. Si va, es una lista que crece sin límite, justo lo que §9 dice que debería ser una
-   subcolección; y un `POST` que copia un elemento leído llevaría la lista de otro padre. El mock no
-   la incrusta, la rellena con `include` y la trata como de solo lectura. Tampoco dice si una
-   relación a una subcolección **sin** `path` también «lleva a ella»: el mock la trata como una
-   relación cualquiera a elementos sueltos, con `href`.
-10. **Qué responde una acción simulada (§11.1).** El texto deja `200` (el recurso afectado), `201` y
-    `204`, pero no qué es «el recurso afectado» de una acción de colección ni si una acción `GET`
-    puede responder otra cosa (un cuerpo para un `POST`, por ejemplo); y Restep 1 no tiene esquema
-    de salida para una acción. El mock responde el elemento, la primera página de la colección o
-    `204`.
-11. **Clave mal formada en una acción idempotente (§7.1, §11.1).** «NO DEBE rechazar una petición
-    porque lleve una `Idempotency-Key` bien formada» no dice qué hacer con una mal formada. El mock
-    la ignora, como cualquier clave en una acción idempotente.
-12. **`include` a través de una relación polimórfica (§9).** `include=featured.books` cuando
-    `featured` va a dos colecciones: ¿vale si el `type` de cada enlace tiene `books`? El mock da
+1. **A collection's `path` and the API root.** The discovery schema says `path` is "relative to
+   the API root, starting with /", but §3 requires body links (`next`, `href`) and §4.3 requires
+   `schemas` links to be absolute paths that include the root's path. With a root at `/api/`, it
+   is unclear whether `books` is declared as `/books` or `/api/books`. The mock always serves at
+   `/` and is not affected, but a client does need to know.
+2. **Filters through a to-many relation.** Settled in draft 6: a path through a to-many relation
+   cannot be declared in `filter` or `sort` (§6.1).
+3. **How far `count: "estimated"` may be off.** §6.5 sets no limit; the mock rounds to the
+   nearest ten. A rough bound (or saying there is none) would help whoever writes tests.
+4. **Service status and API `503`s.** §4.4 says `status` gives `503` when the API cannot serve,
+   but not whether a single `503` from a resource (a transient failure) should be reflected
+   there. The mock keeps `status` at `200` during simulated failures.
+5. **Types of fields that are not filtered.** Discovery only declares types in `filter` (§4.2)
+   and the full shape goes in `schemas`, which is optional. Without schemas, a generator or a
+   typed client has no way to know which fields an item has, nor the types of those that are not
+   filtered or sorted; the mock guesses them from the name.
+6. **Which version a mock declares (§1.1, §1.2).** A server implements the text of the version
+   it declares. The mock serves another API's discovery document, which may declare `1.0` or an
+   earlier draft; so as not to lie it always declares `1.0-draft.6`, even though that changes the
+   document the client expected.
+7. **Expired retirements still in `deprecations`.** §5.5 says how the retired thing responds,
+   but not whether the notice stays in discovery after the `sunset`. The mock keeps it (with the
+   retired thing no longer declared), so it is visible why it is missing.
+8. **"The value the item would receive" (§5.1).** On a `POST`, a read-only field is ignored if
+   it carries that value, but for a field the server sets (`created_at`) the client cannot know
+   it. The mock only ignores `null`.
+9. **The relation that leads to a subcollection (§9).** "The relationship that leads to one MAY
+   carry the same template in its path": it does not say whether that relation is embedded in the
+   parent's representation. If it is, it is a list that grows without bound, exactly what §9 says
+   should be a subcollection; and a `POST` that copies an item it read would carry another
+   parent's list. The mock does not embed it, fills it with `include` and treats it as read-only.
+   Nor does it say whether a relation to a subcollection **without** `path` also "leads to it":
+   the mock treats it as an ordinary relation to individual items, with `href`.
+10. **What a simulated action responds (§11.1).** The text allows `200` (the affected resource),
+    `201` and `204`, but does not say what "the affected resource" of a collection action is, nor
+    whether a `GET` action may respond with something else (a body for a `POST`, for example); and
+    Restep 1 has no output schema for an action. The mock responds with the item, the first page
+    of the collection or `204`.
+11. **Malformed key on an idempotent action (§7.1, §11.1).** "MUST NOT reject a request because
+    it carries a well-formed `Idempotency-Key`" does not say what to do with a malformed one. The
+    mock ignores it, like any key on an idempotent action.
+12. **`include` through a polymorphic relation (§9).** `include=featured.books` when `featured`
+    goes to two collections: is it valid if each link's `type` has `books`? The mock gives
     `unsupported_parameter`.
-13. **Más de un nivel de subcolecciones (§4.2).** El texto lo admite
-    (`/authors/{author_id}/books/{book_id}/reviews`), pero no dice si una ruta con más segmentos
-    literales tras la variable (`/authors/{author_id}/x/books`) es válida. El mock la admite si no
-    hay más variables.
+13. **More than one level of subcollections (§4.2).** The text allows it
+    (`/authors/{author_id}/books/{book_id}/reviews`), but does not say whether a path with more
+    literal segments after the variable (`/authors/{author_id}/x/books`) is valid. The mock
+    accepts it if there are no more variables.
 
-## Código y avisos
+## Code and issues
 
-Código y avisos: <https://github.com/restep-spec/restep-mock>. Ese repositorio se genera desde la web de
-Restep, donde la herramienta se desarrolla junto a la [especificación](https://restep.wubytes.com/1/) y el servidor de
-referencia: `vendor/` y `schema/` son copias de la web para que las pruebas funcionen solas.
+Code and issues: <https://github.com/restep-spec/restep-mock>. That repository is generated from the Restep
+site, where the tool is developed alongside the [specification](https://restep.wubytes.com/1/) and the reference
+server: `vendor/` and `schema/` are copies from the site so the tests run on their own.
 
-Licencia MIT.
+MIT licensed.
