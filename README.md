@@ -4,7 +4,7 @@ A fake Restep 1 API built from a discovery document (§4.2). Use it to develop a
 or a UI before the server exists, or to test them against plenty of data, latency and outages. A
 single file, Node 18+, no dependencies.
 
-It is not a cardboard server: it behaves like a real draft 6 server in the `core`, `query`,
+It is not a cardboard server: it behaves like a real draft 7 server in the `core`, `query`,
 `writes`, `cache` and `relations` profiles and the `actions` and `inherit` extensions, with
 subcollections, and passes `restep-check --writes`
 with no failures using the reference server's discovery document (see "Tests"). Much of the code comes from `vendor/restep-server.mjs`,
@@ -44,7 +44,7 @@ missing file, JSON that is not a discovery document, port in use).
 - **Discovery.** It serves the document it receives untouched, except for what it does not
   implement (below): that way the client sees exactly the API it expects. It accepts any Restep 1
   version that follows the grammar of §1.1 (`1.0`, `1.1`, `1.0-draft.5`…), but always declares
-  `"restep": "1.0-draft.6"`, because that is the text it implements (§1.2), and warns if the
+  `"restep": "1.0-draft.7"`, because that is the text it implements (§1.2), and warns if the
   document said otherwise. Another major version, or a malformed `restep`, does not start.
 - **core.** Collections with `items` and `next`, items at `path/id` (each segment compared after
   decoding: `/books/%37` is `/books/7`), `HEAD` wherever `GET` is declared (without `GET`, also
@@ -57,17 +57,23 @@ missing file, JSON that is not a discovery document, port in use).
   `/id`), `"client"` (without `id`, `required`) or `"either"`, with `409 conflict` and `taken` for
   an `id` the collection has or has had, and never handing out a used `id`. Read-only fields
   (`readOnly` in the `item` schema): ignored with their current value, `read_only` with another.
+  A body with an unpaired surrogate or a noncharacter gives `422 invalid` with a `format` entry
+  whose `pointer` is the string that holds it, or `""` when that string is a member name, after the
+  preconditions; a body that is not JSON gives `400 bad_request` first (§3, §5.4).
   A relation to an item that does not exist gives `unknown` at its `id`; with its current value it
   is ignored without looking it up. Singletons (§5.9): `GET`, `HEAD` and, if declared, `PATCH`;
   `POST` and `DELETE` give `405`; only `fields` among the reserved parameters. The service status
   (§4.4), if a path is declared in `status`.
-- **Retirements (§5.5).** Anything that uses something announced in `deprecations` (of any
-  `kind`, at the root, in a collection or in a singleton) carries `Deprecation` and a `Link` with
-  `rel="deprecation"`, and `Sunset` if a collection, a singleton or the version is being retired.
-  Once the `sunset` has passed, it applies the retirement of `filter`, `operator`, `sort`,
-  `include`, `count`, `max_limit`, `method` and `item_method` (it stops declaring them, and the
-  mock behaves as if they had never been declared) and of a whole collection or singleton
-  (`410 retired`); an expired notice of any other `kind` is not served.
+- **Retirements (§5.5).** Only a notice that retires a resource whole puts headers on its
+  responses: `version` (every response), `collection` and `singleton` (that resource and its items)
+  and `action` (every response to it), with `Deprecation` set to the notice's `announced` instant,
+  a `Link` with `rel="deprecation"` and, once there is a date, `Sunset`. A notice that retires only
+  part of a resource (`field`, `filter`, `sort`…), a `profile` or an `extension` is announced in
+  `deprecations` only. Once the `sunset` has passed, it applies the retirement of `filter`,
+  `operator`, `sort`, `include`, `count`, `max_limit`, `method` and `item_method` (it stops
+  declaring them, and the mock behaves as if they had never been declared) and of a whole
+  collection or singleton (`410 retired`); every expired notice stays in `deprecations`, also one
+  whose retirement it does not simulate (with a warning).
 - **query.** Filters with every operator and type of §6.1 (exact decimals, instants with offset,
   durations by length and `invalid_parameter` with years or months, booleans, text by code
   points, `field.tag` translations with no fallback language, `relation.id` and `relation.field`
@@ -86,7 +92,12 @@ missing file, JSON that is not a discovery document, port in use).
   without credentials with `400`), strong ETag, `_etag` in every response whose body is an item
   (also with `fields`, `include` or on writes) and in each item of a listing that allows `PATCH`
   or `DELETE`, `If-Match` and `If-None-Match` (also on the `POST` to a collection), `404` for a
-  write on a deleted item, and `Prefer: return=minimal` with the item's `ETag`.
+  write on a deleted item, and `Prefer: return=minimal` with the item's `ETag`. A replay whose
+  stored body is no longer the item's current representation (the item changed since) carries no
+  `ETag`, `Content-Location` or `_etag` (§7.1), and a replay of a `201` without body
+  (`return=minimal`) carries no `ETag` even if the item exists (§7.3). An instant or a local
+  date-time with a leap second (`:60`) in a body gives `422 invalid` with a `format` entry, at the
+  element in a list, except in a server-only field of a `POST`, which is ignored (§3).
 - **cache.** `Cache-Control` on every response to `GET` or `HEAD`, errors included, `ETag` and
   `304`, and `Cache-Groups` and `Cache-Group-Invalidation` (§8), these two only if the discovery
   document announces `cache`.
@@ -105,14 +116,15 @@ missing file, JSON that is not a discovery document, port in use).
   their descendants) and the links that pointed to them; their `id`s are not handed out again.
 - **actions (§11.1).** Each declared action with `on`, `safe` and `idempotent` (and `method`);
   the one named `changes`, a `GET` one that is not safe or has `input`, and one with an `on` or
-  `method` that draft 6 does not define are not served. Since the mock does not know their logic,
+  `method` that draft 7 does not define are not served. Since the mock does not know their logic,
   **a simulated action changes no data**. What it does do:
   - `POST /collection/{id}:name` or `/collection:name` (also with `%3A`), depending on `on`; one
     that is not declared, or is requested on the other kind of resource, gives `404`, like an item
     that does not exist; another method, `405` with `Allow`. A reserved parameter gives
     `unsupported_parameter`.
   - The body: empty, with or without `Content-Type`, is `{}`; if not empty it follows §3 (`415`,
-    `400`). It is validated against its `input`, embedded or linked (types, `required`, `enum`,
+    `400`; without `params`, any query parameter gives `unsupported_parameter`, as if it declared
+  `"params": {}`). It is validated against its `input`, embedded or linked (types, `required`, `enum`,
     `const`, ranges, lengths, `pattern`, date `format`, `additionalProperties`, `items`, `anyOf`,
     in nested objects): `422 invalid` with one entry per failure. Without a readable `input`, it
     accepts any object.
@@ -146,6 +158,87 @@ missing file, JSON that is not a discovery document, port in use).
   write that fails this way has no effect and does not use up its `Idempotency-Key`). The `status`
   resource does not go down, so a client can tell a transient API outage apart. Latency and
   failures are deterministic per seed in the order requests arrive.
+
+## What draft 7 added
+
+- **Errors (§5.4).** Every `code` comes from the closed table (`content_too_large` for `413`);
+  `428`, `429`, `431` and `511` would carry `Cache-Control: no-store` (every error does) and no
+  `CDN-Cache-Control`. A body with duplicate member names gives `400 bad_request` (§3).
+- **Instants and durations (§3, §6.1).** Lowercase `t`, `z` and duration letters are accepted;
+  durations follow the grammar of §3, with up to nine decimals in the seconds, and compare
+  exactly, as decimals; a leap second gives `invalid_parameter`. New types `localdatetime` (the
+  fields in `local_times`) and `timezone` (a field named `zone`, `timezone`… or the `zone` of a
+  local time), generated, filtered and validated.
+- **Localized fields (§3, §5.6).** Each field in `localized` is the text of its language map in the
+  language of the response, picked by lookup (RFC 4647) over the map's tags, with
+  `default_language` (added as `"en"`, with a warning, if missing) when nothing matches. Such
+  responses carry `Content-Language` and `Vary: Accept-Language`; the item ETag differs by language,
+  `If-Match` succeeds with that of any language, filters and sorting use the response language and
+  the cursor is bound to it. Writing the field gives `read_only` unless it is its text in some
+  language (then it is ignored).
+- **Filters (§6.1, §6.2).** `nin`, `prefix` and `contains` (empty operand: `invalid_parameter`;
+  with the field's collation); an operator outside the list, `prefix`/`contains` off a `string`, or
+  `ne`/`nin` with `quantifier` are not served. `null` on a to-many relation or a list field itself,
+  as its only operator, is served with or without `"quantifier": "some"`, as declared (both select
+  the same), and with the type of the related items' `id` (`string`) or of the elements, with a
+  warning if declared otherwise. `integer` and `number` operands, and those of `GET` action
+  parameters (each element of a list too), follow the `number` grammar of RFC 8259 (`+20`, `.5`,
+  `020` and `0x14` give `invalid_parameter`); an operand of an `integer` field is valid when its
+  exact value has no fractional part (`20.0` and `2e1` are `20`; `20.5` gives
+  `invalid_parameter`), and a cursor binds numeric operands by their exact value. `"quantifier": "some"` on a list field or on a path
+  through one to-many relation (also one that leads to a subcollection): the filters of a group
+  match when some related item or element matches them all, `null` tests the whole relation or
+  list, never an element (`filter[rel][null]=true` or `filter[rel.x][null]=true` alone asks for an
+  empty one, and negates the group otherwise); sorting by such a path uses the least (or greatest) value.
+  Paths into an object of the item (`address.city`). A switch with `"default": true` applies unless
+  `filter[name]=false`; a `"required": true` filter missing gives `invalid_parameter` naming it.
+- **Writes (§5.1).** A field only the server sets is one no client can set, in a `POST` or a
+  `PATCH`, and discovery cannot say which: neither `readOnly` in the `item` schema nor absence
+  from `create` makes a field one. So the mock has none unless the discovery document lists them
+  in its own collection member `"x-mock-server-only": ["created_at", "total"]` (served as it
+  comes; clients ignore `x-` members). A `POST` ignores those whatever their value and a `PATCH`
+  treats them as read-only; `id`, an effective field or a localized one is never one (warning).
+  Any other `readOnly` field in a `POST` is ignored only as `null`, and otherwise gives
+  `read_only`. `"upsert": true` (with
+  `id_from` `client` or `either`): a `PATCH` to a free id creates the item (`201` with `Location`),
+  `If-None-Match: *` only creates (`412` on a taken `id`) and `If-Match` only updates; the mock
+  never requires `If-Match` (§7.2). `"reusable_ids": true` (with
+  `client`): a deleted id is free again, and each incarnation has another ETag.
+- **Uploads (§5.1).** A collection with `upload` takes the bytes of a file of a declared media
+  type (`415` otherwise, `413 content_too_large` above `max_size`), or, with `"multipart": true`,
+  `multipart/form-data` with exactly one part named `file` (its `filename` is optional). An outer
+  `multipart/form-data` without `"multipart": true` gives `415`, even when `media_types` match it;
+  any other multipart type is a file like any other. Without a `create` schema the mock
+  takes the collection as one that does not create items from JSON (as restep-check does): a JSON
+  body there gives `415`, unless `media_types` admit `application/json` (also as `application/*` or
+  `*/*`), which makes it a file. A `+json` type such as `application/ld+json` is always a file.
+  With a `create` schema, a `POST` with `application/json` is always an item, and a JSON file goes
+  only as the `file` part of multipart: where `media_types` admits `application/json` (also as
+  `application/*` or `*/*`) without `"multipart": true`, the mock serves it with multipart and warns.
+  Every `415` of a collection with `upload` carries `Accept-Post` with what it takes
+  (`application/json` only with a `create` schema, the declared types and, with multipart,
+  `multipart/form-data`). The item gets `_content` (`href`,
+  `media_type`, `size`), and `href` serves the bytes; generated items have made-up bytes. A
+  `name`/`filename` field takes the `Content-Disposition` file name and a `media_type` field the
+  type.
+- **Singletons (§5.9).** One with `parent` hangs from an item (its path is a template that starts
+  with the parent's item path) or from another singleton: one object per parent item, `404` under a
+  parent that does not exist, removed with it. Singleton actions, at `{path}:{name}`.
+- **Actions (§11.1).** A safe action that is not idempotent is not served. `params` of a `GET`
+  action (`invalid_parameter` for a missing required one, a bad value, an empty list or a repeated
+  one; `unsupported_parameter` for an undeclared one); with `output`, a made-up result of that
+  shape, without `_etag`; `GET :new` gives `{"values", "schema"}` from the `create` defaults and
+  schema; a safe collection action without `output` answers `204`, and a `204` carries no `ETag`.
+- **Inheritance (§11.6).** `"combine": "fields"` resolves each member of an object on its own (own
+  member, the linked item's effective member, the default's), and `_inherited` lists the inherited
+  members under `fields`; a `switch` (a boolean field, given its `initial` value by a `POST`) stops
+  anything from coming from above while it is `false`. Fields whose schema is an object of scalars
+  are generated and validated against it.
+- An unsafe action on a collection answers `204` (it creates nothing), never `200` (§11.1).
+- **Discovery (§4.2).** `shared_cache`, reserved, is removed; `inherit_items` is not simulated and
+  is removed (with a warning). `effects`, `method_effects` and `item_method_effects` are served as
+  they come: they change no behaviour. A singleton's `method_effects` keeps only `PATCH`, and only
+  where it supports `PATCH` (§4.3, §5.9); any other key is not served (warning).
 
 ## How it generates the data
 
@@ -192,13 +285,20 @@ to announce anything it does not honour:
 - The `sync` profile and the `batch`, `filter-expr`, `query-method` and `oauth` extensions; the
   `sync`, `batch` and `events` members.
 - Subcollections that do not meet §4.2 (above), and actions that do not meet §11.1.
-- Singletons with a template or `parent` (§5.9 reserves them) and relation or language-map
-  fields of a singleton.
-- An `id_from` with a value that draft 6 does not define.
-- `deprecations` notices with a `kind` out of place, and expired ones for `field`, `value`,
-  `relation`, `action`, `version`, `extension` and `reason`.
+- Singletons with a template but no `parent`, or whose path is not the parent's followed by literal
+  segments (§5.9), a singleton under a singleton that itself has a parent, and relation or
+  language-map fields of a singleton.
+- An `id_from` with a value that draft 7 does not define.
+- `inherit_items` (§11.6) and `shared_cache` (§4.2).
+- `deprecations` notices with a `kind` out of place (expired ones for `field`, `value`,
+  `relation`, `version`, `extension` and `reason` stay in `deprecations`, but their retirement is
+  not applied).
 
 Other limits:
+
+- An `integer` or `number` operand (of a filter or a `GET` action parameter) is `0` or has a
+  magnitude from `1e-300` to `1e300`; over that, `invalid_parameter` with the limit in `detail`
+  (§5.3, §6.1). Within it, it is compared as a number, even outside the field's range.
 
 - Schema validation covers types, `required`, `enum`, `minimum`, `maximum`, `minLength`,
   `maxLength` and `pattern` of top-level fields; not `allOf`, `$ref`, nested objects or `format`
@@ -206,8 +306,8 @@ Other limits:
 - It accepts any well-formed tag in a language map (it never gives the `unknown` code of §3).
 - The logic of actions: they change no data, create nothing (`201`) and give no `409` based on the
   item's state, and it does not put `_actions` in representations (it is a MAY).
-- Restep 1 has no output schema for an action, so it generates no response other than the
-  affected resource.
+- An action without `output` answers with the affected item (`200`) or `204`; with `output`, with a
+  made-up result of that schema. An unsafe collection action never answers `200` (§11.1).
 - A relation to a collection that is not in the discovery document (or is omitted) is `null`.
 - Discovery texts stay in the language they came in; only errors change with `Accept-Language`
   (English and Spanish).
@@ -215,8 +315,11 @@ Other limits:
 - There are no credentials: no response depends on them (so `private` is not needed, §5.1), there
   is no `401` or `403`, nor the `Origin` check of §5.8, and every idempotency key belongs to the
   anonymous principal unless the request carries `Authorization`.
-- On a `POST`, a read-only field other than `id` is only ignored if it is `null`: the mock does
-  not compute "the value the item would receive" (§5.1).
+- On a `POST`, a read-only field not listed in `x-mock-server-only` is ignored only as `null`: the
+  mock does not know the value the item would get; one listed there is ignored whatever its value
+  (§5.1).
+- Whether a collection with `upload` creates items from JSON is read from its `create` schema
+  (declared: it does), since discovery has no member for it (§5.1).
 - It does not set `service-doc` (§4.2): it does not know the documentation of the API it
   simulates (restep-check warns about it).
 - It never gives `429` or `503` to a request with an effect: simulated failures come before doing
@@ -225,7 +328,8 @@ Other limits:
 ## Tests
 
 ```bash
-node tools/restep-mock/test.mjs     # from projects/restep; uses ports 8830-8839
+node tools/restep-mock/test.mjs     # from projects/restep; uses ports 8828-8839
+RESTEP_REF=/path/to/restep-server.mjs node tools/restep-mock/test.mjs   # another copy of the reference
 ```
 
 It starts the reference server, saves its discovery document, starts the mock with it and runs
@@ -236,23 +340,25 @@ discovery document of its own with dates, instants, durations, booleans, `relati
 collection actions (`POST` with `input`, `GET`, idempotent or not, and the ones the text
 forbids), a relation to items of a subcollection, another that leads to a subcollection and a
 polymorphic one. It also tests the seed, `--fail-rate`, `--latency`, `--count` per collection,
-usage errors and the draft 6 additions: the `shop` singleton, `Deprecation` when sorting by
-`year`, media types, `id_from`, `taken`, collations, the query in `Idempotency-Key`, the declared
+usage errors and the draft 6 additions: the `shop` singleton, no `Deprecation` when sorting by
+`year` (a partial notice, since draft 7), media types, `id_from`, `taken`, collations, the query in `Idempotency-Key`, the declared
 version, announced `inherit`, expired retirements, undeclared `limit` and `count` and
 `"anonymous": false`; and, in the library, paths under parents that do or do not exist, cascading
 `POST` and `DELETE`, links with `href` (without it, with another `id`, to something that does not
 exist), `include` and dotted `fields` through subcollections and through a polymorphic relation,
 and each of the action rules above. With a discovery document of its own it also tests that links
 to a subcollection do not change parent, that `include` fills them in and that a collection
-without `GET` gives `405` to `HEAD` too.
+without `GET` gives `405` to `HEAD` too. A last discovery document of its own covers each rule in
+"What draft 7 added" above (port 8828), and the reference's `/me:verify_email` covers singleton
+actions.
 
-Current result (restep-check 0.9.1):
+Current result (restep-check at draft 7, 24 November 2026):
 
 ```
-restep-check contra el mock de la referencia:  0 failed · 1 warning · 531 passed · 50 skipped
-restep-check contra el mock de la agenda:      0 failed · 1 warning · 283 passed · 33 skipped
-restep-check contra el mock de la biblioteca:  0 failed · 1 warning · 292 passed · 46 skipped
-0 fallos · 110 correctas
+restep-check against the reference mock:  0 failed · 1 warning · 1159 passed · 242 skipped
+restep-check against the agenda mock:     0 failed · 1 warning · 298 passed · 38 skipped
+restep-check against the library mock:    0 failed · 1 warning · 309 passed · 51 skipped
+0 failed · 198 passed
 ```
 
 The warning is `discovery.service-doc` (above). The `skip`s come from restep-check, not the
@@ -261,13 +367,29 @@ or without `readOnly` fields, and the like.
 
 ## Open questions about the spec
 
+Draft 7:
+
+- **"Only the server sets" (§5.1).** Settled by the council: discovery does not say which fields
+  those are, so the mock takes only those its `x-mock-server-only` member lists (Writes, above).
+- **A collection that only takes uploads (§5.1).** It answers JSON with `415`, but discovery has no
+  member that says a collection with `upload` does not create from JSON; the mock, like
+  restep-check, reads the absence of a `create` schema as that, which §4.3 does not promise.
+- **A localized field in a `POST` (§5.1).** "The value the item would get" is its map's text in
+  the response language; the mock ignores it with the text of any language of the map sent, or
+  `null`.
+- **`null` on a group with `false` (§6.1).** `filter[reviews][null]=false` together with other
+  filters of the group: the mock reads it as the group alone (some related item matches, so there
+  is some).
+
+Earlier:
+
 1. **A collection's `path` and the API root.** The discovery schema says `path` is "relative to
    the API root, starting with /", but §3 requires body links (`next`, `href`) and §4.3 requires
    `schemas` links to be absolute paths that include the root's path. With a root at `/api/`, it
    is unclear whether `books` is declared as `/books` or `/api/books`. The mock always serves at
    `/` and is not affected, but a client does need to know.
-2. **Filters through a to-many relation.** Settled in draft 6: a path through a to-many relation
-   cannot be declared in `filter` or `sort` (§6.1).
+2. **Filters through a to-many relation.** Settled in draft 7: a path through one to-many relation,
+   or a list field, is declared with `"quantifier": "some"` (§6.1).
 3. **How far `count: "estimated"` may be off.** §6.5 sets no limit; the mock rounds to the
    nearest ten. A rough bound (or saying there is none) would help whoever writes tests.
 4. **Service status and API `503`s.** §4.4 says `status` gives `503` when the API cannot serve,
@@ -279,14 +401,14 @@ or without `readOnly` fields, and the like.
    filtered or sorted; the mock guesses them from the name.
 6. **Which version a mock declares (§1.1, §1.2).** A server implements the text of the version
    it declares. The mock serves another API's discovery document, which may declare `1.0` or an
-   earlier draft; so as not to lie it always declares `1.0-draft.6`, even though that changes the
+   earlier draft; so as not to lie it always declares `1.0-draft.7`, even though that changes the
    document the client expected.
 7. **Expired retirements still in `deprecations`.** §5.5 says how the retired thing responds,
    but not whether the notice stays in discovery after the `sunset`. The mock keeps it (with the
    retired thing no longer declared), so it is visible why it is missing.
 8. **"The value the item would receive" (§5.1).** On a `POST`, a read-only field is ignored if
    it carries that value, but for a field the server sets (`created_at`) the client cannot know
-   it. The mock only ignores `null`.
+   it. Draft 7 settles it: such a field is ignored whatever its value (see "Writes" above).
 9. **The relation that leads to a subcollection (§9).** "The relationship that leads to one MAY
    carry the same template in its path": it does not say whether that relation is embedded in the
    parent's representation. If it is, it is a list that grows without bound, exactly what §9 says
@@ -296,9 +418,9 @@ or without `readOnly` fields, and the like.
    the mock treats it as an ordinary relation to individual items, with `href`.
 10. **What a simulated action responds (§11.1).** The text allows `200` (the affected resource),
     `201` and `204`, but does not say what "the affected resource" of a collection action is, nor
-    whether a `GET` action may respond with something else (a body for a `POST`, for example); and
-    Restep 1 has no output schema for an action. The mock responds with the item, the first page
-    of the collection or `204`.
+    whether a `GET` action may respond with something else. Draft 7 adds `output` for safe actions
+    and forbids `200` for unsafe collection actions; without `output`, the mock responds with the
+    item or `204`.
 11. **Malformed key on an idempotent action (§7.1, §11.1).** "MUST NOT reject a request because
     it carries a well-formed `Idempotency-Key`" does not say what to do with a malformed one. The
     mock ignores it, like any key on an idempotent action.
@@ -313,7 +435,7 @@ or without `readOnly` fields, and the like.
 ## Code and issues
 
 Code and issues: <https://github.com/restep-spec/restep-mock>. That repository is generated from the Restep
-site, where the tool is developed alongside the [specification](https://restep.wubytes.com/1/) and the reference
+site, where the tool is developed alongside the [specification](https://w3id.org/restep/1/) and the reference
 server: `vendor/` and `schema/` are copies from the site so the tests run on their own.
 
 MIT licensed.

@@ -1,6 +1,6 @@
 {
   "name": "restep-mock",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "A fake Restep 1 API from a discovery document",
   "type": "module",
   "bin": {
